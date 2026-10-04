@@ -1,0 +1,6 @@
+{
+  "name": "เกมบันไดงู มัลติเพลเยอร์ (Snakes & Ladders)",
+  "description": "เกมบันไดงูออนไลน์เล่นพร้อมกันหลายคนผ่านระบบเลขห้อง Real-time พร้อมกระดาน 100 ช่อง ลูกเต๋า 3D และเอฟเฟกต์สุดสนุก",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
