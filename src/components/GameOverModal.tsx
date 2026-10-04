@@ -123,25 +123,19 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-2.5">
-          {isHost ? (
-            <button
-              onClick={onRestart}
-              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-900 font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer"
-            >
-              <span>🔄</span>
-              <span>เล่นใหม่อีกรอบ</span>
-            </button>
-          ) : (
-            <div className="text-xs text-slate-400 py-2">
-              รอหัวหน้าห้องกดเริ่มเล่นใหม่อีกรอบ...
-            </div>
-          )}
+          <button
+            onClick={onRestart}
+            className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-900 font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer"
+          >
+            <span>🔄</span>
+            <span>เล่นใหม่อีกรอบ</span>
+          </button>
 
           <button
             onClick={onLeave}
             className="flex-1 py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm sm:text-base transition-all active:scale-95 cursor-pointer"
           >
-            ออกจากห้อง
+            ⚙️ ตั้งค่าผู้เล่นใหม่
           </button>
         </div>
       </div>
