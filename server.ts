@@ -498,6 +498,194 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// REST: Create Room
+app.post('/api/rooms/create', (req, res) => {
+  try {
+    const { playerName, avatar, color } = req.body || {};
+    const code = generateRoomCode();
+    const hostPlayer: Player = {
+      id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: (playerName || 'ผู้เล่น 1').trim().slice(0, 15),
+      color: color || PLAYER_COLORS[0].hex,
+      avatar: avatar || PLAYER_AVATARS[0],
+      position: 1,
+      isHost: true,
+      isBot: false,
+      isReady: true,
+      connected: true,
+    };
+    const { snakes, ladders } = generateRandomBoard();
+    const newRoom: RoomState = {
+      code,
+      hostId: hostPlayer.id,
+      players: [hostPlayer],
+      status: 'lobby',
+      currentTurnIndex: 0,
+      diceValue: null,
+      isRolling: false,
+      snakes,
+      ladders,
+      winner: null,
+      logs: [
+        {
+          id: `log-${Date.now()}`,
+          timestamp: Date.now(),
+          text: `สร้างห้องเล่นเกมเรียบร้อย (รหัสห้อง: ${code})`,
+          type: 'info',
+        },
+      ],
+      lastMove: null,
+    };
+
+    rooms.set(code, newRoom);
+    res.json({ success: true, room: newRoom, playerId: hostPlayer.id });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error creating room';
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// REST: Join Room
+app.post('/api/rooms/join', (req, res) => {
+  try {
+    const { roomCode, playerName, avatar, color } = req.body || {};
+    const code = (roomCode || '').trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) {
+      return res.status(404).json({ success: false, error: 'ไม่พบห้องที่ระบุ กรุณาตรวจสอบรหัสห้องอีกครั้ง' });
+    }
+    if (room.status !== 'lobby') {
+      return res.status(400).json({ success: false, error: 'เกมกำลังดำเนินอยู่ ไม่สามารถเข้าร่วมได้' });
+    }
+    if (room.players.length >= 4) {
+      return res.status(400).json({ success: false, error: 'ห้องนี้เต็มแล้ว (ผู้เล่นครบ 4 คน)' });
+    }
+
+    const usedColors = new Set(room.players.map((p) => p.color));
+    const availableColor = PLAYER_COLORS.find((c) => !usedColors.has(c.hex))?.hex || PLAYER_COLORS[room.players.length % PLAYER_COLORS.length].hex;
+    const playerColor = color && !usedColors.has(color) ? color : availableColor;
+
+    const usedAvatars = new Set(room.players.map((p) => p.avatar));
+    const availableAvatar = PLAYER_AVATARS.find((a) => !usedAvatars.has(a)) || PLAYER_AVATARS[room.players.length % PLAYER_AVATARS.length];
+    const playerAvatar = avatar || availableAvatar;
+
+    const newPlayer: Player = {
+      id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: (playerName || `ผู้เล่น ${room.players.length + 1}`).trim().slice(0, 15),
+      color: playerColor,
+      avatar: playerAvatar,
+      position: 1,
+      isHost: false,
+      isBot: false,
+      isReady: true,
+      connected: true,
+    };
+
+    room.players.push(newPlayer);
+    addLog(room, {
+      text: `${newPlayer.name} เข้าร่วมห้องแล้ว!`,
+      type: 'info',
+      playerName: newPlayer.name,
+      playerColor: newPlayer.color,
+    });
+
+    io.to(code).emit('room_updated', room);
+    res.json({ success: true, room, playerId: newPlayer.id });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error joining room';
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// REST: Get Room State
+app.get('/api/rooms/:code', (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+  const room = rooms.get(code);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'ไม่พบห้องที่ระบุ' });
+  }
+  res.json({ success: true, room });
+});
+
+// REST: Start Game
+app.post('/api/rooms/:code/start', (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+  const room = rooms.get(code);
+  if (!room) return res.status(404).json({ success: false, error: 'Room not found' });
+  if (room.players.length < 2) return res.status(400).json({ success: false, error: 'ต้องมีผู้เล่นอย่างน้อย 2 คน' });
+
+  room.status = 'playing';
+  room.currentTurnIndex = 0;
+  room.diceValue = null;
+  room.winner = null;
+
+  addLog(room, {
+    text: `🎮 เกมเริ่มแล้ว! ตาแรกคือ ${room.players[0].name}`,
+    type: 'info',
+  });
+
+  io.to(code).emit('room_updated', room);
+  scheduleBotTurnIfNeeded(code);
+  res.json({ success: true, room });
+});
+
+// REST: Add Bot
+app.post('/api/rooms/:code/bot', (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+  const room = rooms.get(code);
+  if (!room) return res.status(404).json({ success: false, error: 'Room not found' });
+  if (room.players.length >= 4) return res.status(400).json({ success: false, error: 'ห้องเต็มแล้ว' });
+
+  const botIndex = room.players.filter((p) => p.isBot).length + 1;
+  const usedColors = new Set(room.players.map((p) => p.color));
+  const botColor = PLAYER_COLORS.find((c) => !usedColors.has(c.hex))?.hex || PLAYER_COLORS[room.players.length % PLAYER_COLORS.length].hex;
+  const usedAvatars = new Set(room.players.map((p) => p.avatar));
+  const botAvatar = PLAYER_AVATARS.find((a) => !usedAvatars.has(a)) || '🤖';
+
+  const botPlayer: Player = {
+    id: `bot_${Date.now()}`,
+    name: `บอท AI ${botIndex}`,
+    color: botColor,
+    avatar: botAvatar,
+    position: 1,
+    isHost: false,
+    isBot: true,
+    isReady: true,
+    connected: true,
+  };
+
+  room.players.push(botPlayer);
+  addLog(room, {
+    text: `🤖 ${botPlayer.name} เข้าร่วมห้องแล้ว!`,
+    type: 'info',
+    playerName: botPlayer.name,
+    playerColor: botPlayer.color,
+  });
+
+  io.to(code).emit('room_updated', room);
+  res.json({ success: true, room });
+});
+
+// REST: Reroll Board
+app.post('/api/rooms/:code/reroll', (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+  const room = rooms.get(code);
+  if (!room) return res.status(404).json({ success: false, error: 'Room not found' });
+
+  const { snakes, ladders } = generateRandomBoard();
+  room.snakes = snakes;
+  room.ladders = ladders;
+
+  addLog(room, {
+    text: '🔄 สุ่มตำแหน่งงูและบันไดใหม่เรียบร้อย!',
+    type: 'info',
+  });
+
+  io.to(code).emit('room_updated', room);
+  res.json({ success: true, room });
+});
+
 async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
