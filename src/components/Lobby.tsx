@@ -1,455 +1,350 @@
 import React, { useState } from 'react';
 import {
-  Player,
   PLAYER_COLORS,
   PLAYER_AVATARS,
-  Snake,
-  Ladder,
 } from '../types/game';
 
+interface CustomPlayerConfig {
+  name: string;
+  avatar: string;
+  color: string;
+  isBot: boolean;
+}
+
 interface LobbyProps {
-  roomCode?: string;
-  isHost?: boolean;
-  players?: Player[];
-  onStartGame?: () => void;
-  onAddBot?: () => void;
-  onRerollBoard?: () => void;
-  onLeaveRoom?: () => void;
-  onCreateRoom: (data: { playerName: string; avatar: string; color: string }) => void;
-  onJoinRoom: (data: { roomCode: string; playerName: string; avatar: string; color: string }) => void;
-  onStartLocalGame: (playersCount: number, botCount: number) => void;
-  isLoading: boolean;
-  errorMessage?: string | null;
-  snakesCount?: number;
-  laddersCount?: number;
-  isConnected?: boolean;
-  onReconnect?: () => void;
+  onStartGameWithRoom: (params: {
+    roomCode: string;
+    players: CustomPlayerConfig[];
+  }) => void;
+  defaultRoomCode?: string;
+}
+
+function generateRandomCode(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
-  roomCode,
-  isHost = false,
-  players = [],
-  onStartGame,
-  onAddBot,
-  onRerollBoard,
-  onLeaveRoom,
-  onCreateRoom,
-  onJoinRoom,
-  onStartLocalGame,
-  isLoading,
-  errorMessage,
-  snakesCount = 7,
-  laddersCount = 8,
-  isConnected = true,
-  onReconnect,
+  onStartGameWithRoom,
+  defaultRoomCode,
 }) => {
-  const [tab, setTab] = useState<'create' | 'join' | 'local'>('create');
-  const [playerName, setPlayerName] = useState('ผู้เล่น 1');
-  const [inputCode, setInputCode] = useState('');
-  const [selectedAvatar, setSelectedAvatar] = useState(PLAYER_AVATARS[0]);
-  const [selectedColor, setSelectedColor] = useState(PLAYER_COLORS[0].hex);
-  const [copiedText, setCopiedText] = useState(false);
+  const [tab, setTab] = useState<'create' | 'join'>('create');
+  const [createdRoomCode, setCreatedRoomCode] = useState(() => defaultRoomCode || generateRandomCode());
+  const [joinRoomCode, setJoinRoomCode] = useState('');
+  const [playerCount, setPlayerCount] = useState<number>(2);
 
-  // Local game settings
-  const [localPlayersCount, setLocalPlayersCount] = useState(2);
-  const [localBotCount, setLocalBotCount] = useState(1);
+  // Default player configurations
+  const [playersConfig, setPlayersConfig] = useState<CustomPlayerConfig[]>([
+    {
+      name: 'ผู้เล่น 1',
+      avatar: PLAYER_AVATARS[0],
+      color: PLAYER_COLORS[0].hex,
+      isBot: false,
+    },
+    {
+      name: 'ผู้เล่น 2',
+      avatar: PLAYER_AVATARS[1],
+      color: PLAYER_COLORS[1].hex,
+      isBot: false,
+    },
+    {
+      name: 'บอท AI 1',
+      avatar: PLAYER_AVATARS[2],
+      color: PLAYER_COLORS[2].hex,
+      isBot: true,
+    },
+    {
+      name: 'บอท AI 2',
+      avatar: PLAYER_AVATARS[3],
+      color: PLAYER_COLORS[3].hex,
+      isBot: true,
+    },
+  ]);
 
-  const handleCopyCode = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 2000);
-  };
+  const [activePlayerEditIndex, setActivePlayerEditIndex] = useState(0);
 
-  const handleCopyShareLink = (code: string) => {
-    const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
-    navigator.clipboard.writeText(url);
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 2000);
-  };
-
-  // If already inside a room, show Room Lobby view
-  if (roomCode) {
-    return (
-      <div className="w-full max-w-lg bg-slate-800/90 backdrop-blur-md rounded-3xl border border-slate-700/80 p-5 sm:p-7 shadow-2xl">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <span className="text-3xl sm:text-4xl">🎲 🐍 🪜</span>
-          <h2 className="text-xl sm:text-2xl font-black text-white mt-1">ห้องเตรียมพร้อมเล่นเกม</h2>
-          <p className="text-xs sm:text-sm text-slate-400">ส่งรหัสห้องให้เพื่อนเพื่อเข้ามาร่วมเล่นด้วยกัน!</p>
-        </div>
-
-        {/* Room Code Showcase */}
-        <div className="bg-slate-900/80 rounded-2xl p-4 sm:p-5 border border-amber-500/40 text-center mb-6 shadow-inner relative overflow-hidden">
-          <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500" />
-          <div className="text-xs text-amber-400 uppercase tracking-widest font-bold mb-1">
-            รหัสห้อง (Room Code)
-          </div>
-          <div className="text-4xl sm:text-5xl font-black tracking-widest text-white font-mono my-1 select-all">
-            {roomCode}
-          </div>
-
-          <div className="flex items-center justify-center gap-2 mt-3">
-            <button
-              onClick={() => handleCopyCode(roomCode)}
-              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
-            >
-              <span>{copiedText ? '✓ คัดลอกแล้ว!' : '📋 คัดลอกรหัส'}</span>
-            </button>
-            <button
-              onClick={() => handleCopyShareLink(roomCode)}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-            >
-              <span>🔗 แชร์ลิงก์ห้อง</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Players List (2-4 Players) */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between text-xs sm:text-sm text-slate-300 font-bold mb-2.5">
-            <span>ผู้เล่นในห้อง ({players.length}/4 คน)</span>
-            <span className="text-[11px] text-slate-400">ต้องการอย่างน้อย 1-4 คน</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {players.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 p-3 rounded-2xl bg-slate-700/60 border border-slate-600/60 shadow-sm"
-              >
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-xl shadow border-2 border-white shrink-0"
-                  style={{ backgroundColor: p.color }}
-                >
-                  {p.avatar}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-white text-sm sm:text-base truncate flex items-center gap-1.5">
-                    <span className="truncate">{p.name}</span>
-                    {p.isHost && (
-                      <span className="text-[10px] bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded font-black shrink-0">
-                        👑 หัวหน้า
-                      </span>
-                    )}
-                    {p.isBot && (
-                      <span className="text-[10px] bg-sky-400 text-slate-900 px-1.5 py-0.5 rounded font-bold shrink-0">
-                        🤖 บอท
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>พร้อมเล่น</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {/* Empty player slots */}
-            {Array.from({ length: 4 - players.length }).map((_, idx) => (
-              <div
-                key={`empty-${idx}`}
-                className="flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-slate-700/80 text-slate-500 text-xs sm:text-sm"
-              >
-                <span>👤</span>
-                <span>รอผู้เล่นเข้าร่วม...</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Board details & reroll */}
-        <div className="bg-slate-900/50 rounded-xl p-3 mb-5 border border-slate-700/60 flex items-center justify-between text-xs sm:text-sm">
-          <div className="flex items-center gap-3 text-slate-300">
-            <span>บันได: <strong className="text-amber-400">{laddersCount} จุด 🪜</strong></span>
-            <span>งู: <strong className="text-rose-400">{snakesCount} ตัว 🐍</strong></span>
-          </div>
-          {isHost && onRerollBoard && (
-            <button
-              onClick={onRerollBoard}
-              className="text-xs text-sky-400 hover:text-sky-300 font-semibold underline flex items-center gap-1 cursor-pointer"
-            >
-              <span>สุ่มแผนที่ใหม่</span>
-            </button>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-col gap-2.5">
-          {isHost ? (
-            <div className="flex flex-col sm:flex-row gap-2">
-              {players.length < 4 && onAddBot && (
-                <button
-                  onClick={onAddBot}
-                  className="flex-1 py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <span>🤖</span>
-                  <span>เพิ่มผู้เล่นบอท</span>
-                </button>
-              )}
-              <button
-                onClick={onStartGame}
-                disabled={players.length < 1}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-extrabold text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-              >
-                <span>🚀</span>
-                <span>เริ่มเกมเลย!</span>
-              </button>
-            </div>
-          ) : (
-            <div className="w-full py-3.5 px-4 rounded-xl bg-slate-900/80 border border-slate-700 text-center text-slate-300 font-medium text-sm flex items-center justify-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-              <span>รอหัวหน้าห้อง ({players.find((p) => p.isHost)?.name || 'Host'}) กดเริ่มเกม...</span>
-            </div>
-          )}
-
-          {onLeaveRoom && (
-            <button
-              onClick={onLeaveRoom}
-              className="w-full py-2.5 px-4 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
-            >
-              ออกจากห้อง
-            </button>
-          )}
-        </div>
-      </div>
+  const updatePlayer = (index: number, updates: Partial<CustomPlayerConfig>) => {
+    setPlayersConfig((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, ...updates } : p))
     );
-  }
+  };
 
-  // Not in a room: Show Initial Menu (Create / Join / Local)
+  const handleStart = (codeToUse: string) => {
+    const trimmed = codeToUse.trim().toUpperCase() || generateRandomCode();
+    const activePlayers = playersConfig.slice(0, playerCount);
+    onStartGameWithRoom({
+      roomCode: trimmed,
+      players: activePlayers,
+    });
+  };
+
   return (
-    <div className="w-full max-w-md bg-slate-800/90 backdrop-blur-md rounded-3xl border border-slate-700/80 p-5 sm:p-7 shadow-2xl">
-      {/* Title & Branding */}
+    <div className="w-full max-w-lg bg-slate-800/90 backdrop-blur-md rounded-3xl border border-slate-700/80 p-5 sm:p-7 shadow-2xl">
+      {/* Title */}
       <div className="text-center mb-6">
-        <div className="inline-block p-2 bg-amber-500/20 rounded-2xl border border-amber-400/40 mb-2">
-          <span className="text-3xl sm:text-4xl">🪜 🐍 🎲</span>
-        </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400">
-          เกมบันไดงู มัลติเพลเยอร์
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-400 mt-1">
-          Snakes and Ladders Online • เล่นออนไลน์แบบเรียลไทม์
+        <span className="text-4xl animate-bounce inline-block">🎲 🐍 🪜</span>
+        <h2 className="text-2xl font-black text-white mt-1">เกมบันไดงู (Snakes & Ladders)</h2>
+        <p className="text-xs sm:text-sm text-slate-300">
+          เล่นด้วยกันโดยใช้เลขห้อง สนุกได้ทันทีไม่ต้องเชื่อมต่อเซิร์ฟเวอร์
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="grid grid-cols-3 gap-1 bg-slate-900/80 p-1 rounded-2xl mb-5 border border-slate-700/80 text-xs sm:text-sm font-bold">
+      <div className="grid grid-cols-2 p-1.5 bg-slate-900/90 rounded-2xl mb-6 text-sm font-bold border border-slate-700/60">
         <button
+          type="button"
           onClick={() => setTab('create')}
-          className={`py-2 px-2 rounded-xl transition-all cursor-pointer ${
+          className={`py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
             tab === 'create'
-              ? 'bg-amber-500 text-slate-900 shadow-md'
+              ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
               : 'text-slate-400 hover:text-white'
           }`}
-        >
-          สร้างห้องใหม่
-        </button>
-        <button
-          onClick={() => setTab('join')}
-          className={`py-2 px-2 rounded-xl transition-all cursor-pointer ${
-            tab === 'join'
-              ? 'bg-amber-500 text-slate-900 shadow-md'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          กรอกเลขห้อง
-        </button>
-        <button
-          onClick={() => setTab('local')}
-          className={`py-2 px-2 rounded-xl transition-all cursor-pointer ${
-            tab === 'local'
-              ? 'bg-amber-500 text-slate-900 shadow-md'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          เล่นในเครื่อง
-        </button>
-      </div>
-
-      {/* Offline Alert if disconnected on online tabs */}
-      {!isConnected && tab !== 'local' && (
-        <div className="mb-4 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-2 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
-            <span>กำลังเชื่อมต่อกับเซิร์ฟเวอร์...</span>
-          </div>
-          {onReconnect && (
-            <button
-              onClick={onReconnect}
-              type="button"
-              className="px-2.5 py-1 rounded-lg bg-amber-500/30 hover:bg-amber-500/40 text-white font-bold text-[11px] underline cursor-pointer shrink-0"
-            >
-              กดเชื่อมต่อใหม่
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Error Message */}
-      {errorMessage && (
-        <div className="mb-4 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-center gap-2">
-          <span>⚠️</span>
-          <span>{errorMessage}</span>
-        </div>
-      )}
-
-      {/* User Customization (Name, Avatar, Color) */}
-      <div className="space-y-4 mb-6">
-        {/* Name input */}
-        <div>
-          <label className="block text-xs font-bold text-slate-300 mb-1.5">ชื่อผู้เล่นของคุณ</label>
-          <input
-            type="text"
-            value={playerName}
-            onChange={(e) => setPlayerName(e.target.value)}
-            maxLength={15}
-            placeholder="ใส่ชื่อของคุณ"
-            className="w-full bg-slate-900/80 border border-slate-600 rounded-xl px-3.5 py-2.5 text-white font-medium text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
-          />
-        </div>
-
-        {/* Avatar Picker */}
-        <div>
-          <label className="block text-xs font-bold text-slate-300 mb-1.5">เลือกไอคอนตัวละคร</label>
-          <div className="flex flex-wrap gap-2">
-            {PLAYER_AVATARS.slice(0, 8).map((avatar) => (
-              <button
-                key={avatar}
-                type="button"
-                onClick={() => setSelectedAvatar(avatar)}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl transition-all cursor-pointer ${
-                  selectedAvatar === avatar
-                    ? 'bg-amber-500 scale-110 shadow-lg ring-2 ring-white'
-                    : 'bg-slate-700/60 hover:bg-slate-700 text-white'
-                }`}
-              >
-                {avatar}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Color Picker */}
-        <div>
-          <label className="block text-xs font-bold text-slate-300 mb-1.5">เลือกสีตัวเดิน</label>
-          <div className="grid grid-cols-4 gap-2">
-            {PLAYER_COLORS.map((color) => (
-              <button
-                key={color.hex}
-                type="button"
-                onClick={() => setSelectedColor(color.hex)}
-                className={`h-9 rounded-xl flex items-center justify-center border-2 transition-all cursor-pointer ${
-                  selectedColor === color.hex
-                    ? 'border-white scale-105 shadow-md ring-2 ring-amber-400'
-                    : 'border-transparent opacity-80 hover:opacity-100'
-                }`}
-                style={{ backgroundColor: color.hex }}
-              >
-                {selectedColor === color.hex && <span className="text-white text-xs font-bold">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Tab Specific Content */}
-      {tab === 'create' && (
-        <button
-          onClick={() =>
-            onCreateRoom({
-              playerName: playerName.trim() || 'ผู้เล่น 1',
-              avatar: selectedAvatar,
-              color: selectedColor,
-            })
-          }
-          disabled={isLoading}
-          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-900 font-black text-base shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
         >
           <span>✨</span>
-          <span>{isLoading ? 'กำลังสร้างห้อง...' : 'สร้างห้องใหม่ (รับรหัสห้อง)'}</span>
+          <span>สร้างห้อง (สุ่มเลข)</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setTab('join')}
+          className={`py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            tab === 'join'
+              ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <span>🔢</span>
+          <span>จอยเลขห้อง</span>
+        </button>
+      </div>
+
+      {/* Tab 1: Create Room */}
+      {tab === 'create' ? (
+        <div className="space-y-5">
+          {/* Room Code Showcase */}
+          <div className="p-4 bg-slate-900/80 rounded-2xl border border-amber-500/40 text-center relative overflow-hidden shadow-inner">
+            <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500" />
+            <div className="text-xs text-amber-400 font-bold uppercase tracking-wider mb-1">
+              เลขห้องของคุณ (Room Code)
+            </div>
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-4xl sm:text-5xl font-black tracking-widest text-white font-mono">
+                {createdRoomCode}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCreatedRoomCode(generateRandomCode())}
+                title="สุ่มเลขห้องใหม่"
+                className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 flex items-center justify-center text-lg text-slate-300 hover:text-white transition-all cursor-pointer active:scale-95"
+              >
+                🔄
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              💡 เพื่อนสามารถเลือกแท็บ &quot;จอยเลขห้อง&quot; แล้วกรอกเลข <strong>{createdRoomCode}</strong> เพื่อใช้กระดานเดียวกันได้!
+            </p>
+          </div>
+        </div>
+      ) : (
+        /* Tab 2: Join by Room Code */
+        <div className="space-y-5">
+          <div className="p-4 bg-slate-900/80 rounded-2xl border border-sky-500/40 text-center">
+            <label htmlFor="join-room-code-input" className="block text-xs text-sky-400 font-bold uppercase tracking-wider mb-2">
+              กรอกเลขห้องที่ต้องการเข้าร่วม
+            </label>
+            <div className="flex justify-center">
+              <input
+                id="join-room-code-input"
+                type="text"
+                maxLength={6}
+                value={joinRoomCode}
+                onChange={(e) => setJoinRoomCode(e.target.value.toUpperCase())}
+                placeholder="เช่น 4829"
+                className="w-48 py-2.5 text-center text-3xl font-mono font-black rounded-xl bg-slate-950 border border-sky-500/60 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-400 tracking-widest"
+              />
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              กระดาน บันได และงูจะถูกสร้างให้เหมือนกับห้องนี้ 100%
+            </p>
+          </div>
+        </div>
       )}
 
-      {tab === 'join' && (
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1.5">
-              กรอกเลขห้อง (4 ตัวอักษร)
-            </label>
+      {/* Common Setup: Number of Players */}
+      <div className="mt-5 space-y-4">
+        <div>
+          <label className="block text-xs font-bold text-slate-300 mb-2">
+            จำนวนผู้เล่นในห้อง (2 - 4 คน)
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {[2, 3, 4].map((num) => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => setPlayerCount(num)}
+                className={`py-2 px-3 rounded-xl border text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  playerCount === num
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg scale-102'
+                    : 'bg-slate-900/60 border-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>👥</span>
+                <span>{num} ผู้เล่น</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Players List Config */}
+        <div>
+          <label className="block text-xs font-bold text-slate-300 mb-2">
+            รายชื่อผู้เล่น &amp; สัญลักษณ์ตัวเดิน
+          </label>
+          <div className="space-y-2">
+            {playersConfig.slice(0, playerCount).map((p, idx) => {
+              const isSelected = activePlayerEditIndex === idx;
+              return (
+                <div
+                  key={idx}
+                  onClick={() => setActivePlayerEditIndex(idx)}
+                  className={`p-2.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                    isSelected
+                      ? 'bg-slate-700/80 border-amber-400/80 shadow-md ring-1 ring-amber-400/40'
+                      : 'bg-slate-900/50 border-slate-700/60 hover:bg-slate-700/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {/* Avatar preview */}
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-md border border-white/20 shrink-0"
+                      style={{ backgroundColor: p.color }}
+                    >
+                      {p.avatar}
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-white flex items-center gap-1.5">
+                        <span>{p.name}</span>
+                        {p.isBot && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                            บอท AI
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        แตะเพื่อแก้ไขชื่อ / ไอคอน
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Toggle Human / Bot */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updatePlayer(idx, {
+                        isBot: !p.isBot,
+                        name: !p.isBot
+                          ? `บอท AI ${idx + 1}`
+                          : `ผู้เล่น ${idx + 1}`,
+                      });
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                      p.isBot
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                    }`}
+                  >
+                    {p.isBot ? '🤖 บอท' : '👤 คนเล่น'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected Player Customizer Modal/Panel */}
+        {activePlayerEditIndex < playerCount && (
+          <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-700/80 space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+              <span>แก้ไข: {playersConfig[activePlayerEditIndex].name}</span>
+              <span className="text-[10px] text-amber-400">ผู้เล่นที่ {activePlayerEditIndex + 1}</span>
+            </div>
+
+            {/* Name Input */}
             <input
               type="text"
-              value={inputCode}
-              onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-              maxLength={6}
-              placeholder="เช่น 7492 หรือ A8B3"
-              className="w-full bg-slate-900/80 border border-slate-600 rounded-xl px-3.5 py-3 text-center text-white font-mono font-black text-xl tracking-widest focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+              value={playersConfig[activePlayerEditIndex].name}
+              maxLength={15}
+              onChange={(e) =>
+                updatePlayer(activePlayerEditIndex, { name: e.target.value })
+              }
+              className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-400"
+              placeholder="ตั้งชื่อผู้เล่น..."
             />
-          </div>
 
-          <button
-            onClick={() =>
-              onJoinRoom({
-                roomCode: inputCode.trim(),
-                playerName: playerName.trim() || 'ผู้เล่น 2',
-                avatar: selectedAvatar,
-                color: selectedColor,
-              })
-            }
-            disabled={isLoading || !inputCode.trim()}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-base shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-          >
-            <span>🚪</span>
-            <span>{isLoading ? 'กำลังเข้าห้อง...' : 'เข้าร่วมห้องนี้'}</span>
-          </button>
-        </div>
-      )}
-
-      {tab === 'local' && (
-        <div className="space-y-4">
-          <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/60 text-xs sm:text-sm text-slate-300">
-            โหมดนี้สามารถเล่นสลับกันในเครื่องเดียวกัน (Pass & Play) หรือจะเพิ่มบอท AI มาเล่นด้วยก็ได้!
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+            {/* Avatar Selection */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">จำนวนผู้เล่นคน</label>
-              <select
-                value={localPlayersCount}
-                onChange={(e) => setLocalPlayersCount(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-white text-sm"
-              >
-                <option value={1}>1 คน (เล่นกับบอท)</option>
-                <option value={2}>2 คน (สลับกันเล่น)</option>
-                <option value={3}>3 คน</option>
-                <option value={4}>4 คน</option>
-              </select>
+              <div className="text-[10px] text-slate-400 mb-1">เลือกตัวละคร</div>
+              <div className="grid grid-cols-8 gap-1.5">
+                {PLAYER_AVATARS.map((av) => (
+                  <button
+                    key={av}
+                    type="button"
+                    onClick={() => updatePlayer(activePlayerEditIndex, { avatar: av })}
+                    className={`h-8 rounded-lg text-base flex items-center justify-center transition-all cursor-pointer ${
+                      playersConfig[activePlayerEditIndex].avatar === av
+                        ? 'bg-amber-400 text-slate-950 scale-110 shadow-sm'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {av}
+                  </button>
+                ))}
+              </div>
             </div>
 
+            {/* Color Selection */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">จำนวนบอท AI</label>
-              <select
-                value={localBotCount}
-                onChange={(e) => setLocalBotCount(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-white text-sm"
-              >
-                <option value={0}>ไม่มีบอท</option>
-                <option value={1}>1 บอท</option>
-                <option value={2}>2 บอท</option>
-                <option value={3}>3 บอท</option>
-              </select>
+              <div className="text-[10px] text-slate-400 mb-1">เลือกสีประจำตัว</div>
+              <div className="flex items-center gap-2">
+                {PLAYER_COLORS.map((c) => (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    onClick={() => updatePlayer(activePlayerEditIndex, { color: c.hex })}
+                    className={`w-7 h-7 rounded-full transition-transform cursor-pointer ${
+                      playersConfig[activePlayerEditIndex].color === c.hex
+                        ? 'ring-2 ring-white scale-110'
+                        : 'opacity-70 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: c.hex }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
             </div>
           </div>
+        )}
 
-          <button
-            onClick={() => onStartLocalGame(localPlayersCount, localBotCount)}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-black text-base shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
-          >
-            <span>🎮</span>
-            <span>เริ่มเล่นแบบออฟไลน์เลย</span>
-          </button>
-        </div>
-      )}
+        {/* Start Game Action Button */}
+        <button
+          type="button"
+          onClick={() => handleStart(tab === 'create' ? createdRoomCode : joinRoomCode)}
+          disabled={tab === 'join' && !joinRoomCode.trim()}
+          className={`w-full py-3.5 rounded-2xl font-black text-base sm:text-lg transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer active:scale-98 ${
+            tab === 'join' && !joinRoomCode.trim()
+              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+              : 'bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:brightness-105 text-slate-950 shadow-amber-500/25'
+          }`}
+        >
+          <span>🎲</span>
+          <span>
+            {tab === 'create'
+              ? `เริ่มเล่นเกม (ห้อง #${createdRoomCode})`
+              : `เข้าเล่นเกมตามเลขห้อง (#${joinRoomCode || '----'})`}
+          </span>
+          <span>🚀</span>
+        </button>
+      </div>
     </div>
   );
 };

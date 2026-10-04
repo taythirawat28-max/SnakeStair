@@ -88,14 +88,29 @@ export function calculateMove(
 }
 
 /**
- * Generate randomized valid snakes and ladders (5-7 each)
- * Ensures:
- * - No overlaps between ladder bottoms/tops and snake heads/tails
- * - No 1-tile ladders/snakes
- * - No snakes starting at tile 100 (that would make winning impossible)
- * - Ladders always go up, snakes always go down
+ * Simple seeded pseudo-random number generator
  */
-export function generateRandomBoard(): { snakes: Snake[]; ladders: Ladder[] } {
+function createSeededRandom(seedStr?: string): () => number {
+  if (!seedStr) return Math.random;
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 16777619);
+  }
+  return function () {
+    h += h << 13;
+    h ^= h >>> 7;
+    h += h << 3;
+    h ^= h >>> 17;
+    return ((h += h << 5) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Generate randomized valid snakes and ladders (7 each)
+ * Can take an optional seed (e.g. roomCode) so identical room codes get identical board layouts!
+ */
+export function generateRandomBoard(seed?: string): { snakes: Snake[]; ladders: Ladder[] } {
+  const rng = createSeededRandom(seed);
   const usedTiles = new Set<number>([1, 100]); // Tile 1 is start, tile 100 is goal
   const ladders: Ladder[] = [];
   const snakes: Snake[] = [];
@@ -105,20 +120,19 @@ export function generateRandomBoard(): { snakes: Snake[]; ladders: Ladder[] } {
 
   // Generate Ladders
   let attempts = 0;
-  while (ladders.length < ladderCount && attempts < 200) {
+  while (ladders.length < ladderCount && attempts < 250) {
     attempts++;
     // Bottom between 2 and 75
-    const bottom = Math.floor(Math.random() * 74) + 2;
+    const bottom = Math.floor(rng() * 74) + 2;
     if (usedTiles.has(bottom)) continue;
 
     // Minimum jump of 12, max up to 98
     const minTop = Math.min(98, bottom + 12);
     if (minTop >= 99) continue;
-    const top = Math.floor(Math.random() * (98 - minTop + 1)) + minTop;
+    const top = Math.floor(rng() * (98 - minTop + 1)) + minTop;
 
     if (usedTiles.has(top)) continue;
 
-    // Avoid same column straight line overlap if possible
     usedTiles.add(bottom);
     usedTiles.add(top);
     ladders.push({ id: `ladder-${ladders.length + 1}`, bottom, top });
@@ -126,16 +140,16 @@ export function generateRandomBoard(): { snakes: Snake[]; ladders: Ladder[] } {
 
   // Generate Snakes
   attempts = 0;
-  while (snakes.length < snakeCount && attempts < 200) {
+  while (snakes.length < snakeCount && attempts < 250) {
     attempts++;
     // Head between 20 and 98
-    const head = Math.floor(Math.random() * 79) + 20;
+    const head = Math.floor(rng() * 79) + 20;
     if (usedTiles.has(head)) continue;
 
     // Maximum tail is head - 12, minimum is 3
     const maxTail = head - 12;
     if (maxTail < 3) continue;
-    const tail = Math.floor(Math.random() * (maxTail - 3 + 1)) + 3;
+    const tail = Math.floor(rng() * (maxTail - 3 + 1)) + 3;
 
     if (usedTiles.has(tail)) continue;
 
