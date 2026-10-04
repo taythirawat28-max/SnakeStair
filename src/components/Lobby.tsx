@@ -22,6 +22,8 @@ interface LobbyProps {
   errorMessage?: string | null;
   snakesCount?: number;
   laddersCount?: number;
+  isConnected?: boolean;
+  onReconnect?: () => void;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -39,6 +41,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   errorMessage,
   snakesCount = 7,
   laddersCount = 8,
+  isConnected = true,
+  onReconnect,
 }) => {
   const [tab, setTab] = useState<'create' | 'join' | 'local'>('create');
   const [playerName, setPlayerName] = useState('ผู้เล่น 1');
@@ -262,6 +266,25 @@ export const Lobby: React.FC<LobbyProps> = ({
           เล่นในเครื่อง
         </button>
       </div>
+
+      {/* Offline Alert if disconnected on online tabs */}
+      {!isConnected && tab !== 'local' && (
+        <div className="mb-4 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-2 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
+            <span>กำลังเชื่อมต่อกับเซิร์ฟเวอร์...</span>
+          </div>
+          {onReconnect && (
+            <button
+              onClick={onReconnect}
+              type="button"
+              className="px-2.5 py-1 rounded-lg bg-amber-500/30 hover:bg-amber-500/40 text-white font-bold text-[11px] underline cursor-pointer shrink-0"
+            >
+              กดเชื่อมต่อใหม่
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Error Message */}
       {errorMessage && (

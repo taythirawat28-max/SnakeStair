@@ -106,12 +106,39 @@ export default function App() {
     setMovingPlayerId(null);
   };
 
-  // Initialize Socket.io connection
+  // Ensure socket is connected before emitting
+  const ensureSocketConnection = async (): Promise<boolean> => {
+    const socket = socketRef.current;
+    if (!socket) return false;
+    if (socket.connected) return true;
+
+    socket.connect();
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        resolve(Boolean(socketRef.current?.connected));
+      }, 2500);
+
+      socket.once('connect', () => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+      socket.once('connect_error', () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+  };
+
+  // Initialize Socket.io connection with polling fallback for maximum reliability
   useEffect(() => {
     const socket = io({
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      transports: ['polling', 'websocket'],
+      upgrade: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
     socketRef.current = socket;
 
@@ -122,6 +149,14 @@ export default function App() {
 
     socket.on('disconnect', () => {
       setIsConnected(false);
+    });
+
+    socket.on('connect_error', () => {
+      setIsConnected(false);
+    });
+
+    socket.io.on('reconnect', () => {
+      setIsConnected(true);
     });
 
     socket.on('room_updated', (updatedRoom: RoomState) => {
@@ -174,14 +209,15 @@ export default function App() {
   }, []);
 
   // CREATE ONLINE ROOM
-  const handleCreateRoom = (data: { playerName: string; avatar: string; color: string }) => {
+  const handleCreateRoom = async (data: { playerName: string; avatar: string; color: string }) => {
     setIsLoading(true);
     setErrorMessage(null);
     setIsLocalMode(false);
 
-    if (!socketRef.current || !isConnected) {
+    const connected = await ensureSocketConnection();
+    if (!connected || !socketRef.current) {
       setIsLoading(false);
-      setErrorMessage('กำลังเชื่อมต่อกับเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง');
+      setErrorMessage('ยังไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง หรือเลือกแท็บ "เล่นในเครื่อง"');
       return;
     }
 
@@ -202,7 +238,7 @@ export default function App() {
   };
 
   // JOIN ONLINE ROOM
-  const handleJoinRoom = (data: {
+  const handleJoinRoom = async (data: {
     roomCode: string;
     playerName: string;
     avatar: string;
@@ -212,9 +248,10 @@ export default function App() {
     setErrorMessage(null);
     setIsLocalMode(false);
 
-    if (!socketRef.current || !isConnected) {
+    const connected = await ensureSocketConnection();
+    if (!connected || !socketRef.current) {
       setIsLoading(false);
-      setErrorMessage('ยังไม่ได้เชื่อมต่อกับเซิร์ฟเวอร์');
+      setErrorMessage('ยังไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง หรือเลือกแท็บ "เล่นในเครื่อง"');
       return;
     }
 
@@ -542,11 +579,17 @@ export default function App() {
         {/* Header Right Actions */}
         <div className="flex items-center gap-2">
           {/* Server Connection Indicator */}
-          <div
-            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+          <button
+            onClick={() => {
+              if (!isConnected && socketRef.current) {
+                socketRef.current.connect();
+              }
+            }}
+            title={isConnected ? 'เชื่อมต่อออนไลน์ปกติ' : 'กดเพื่อลองเชื่อมต่อใหม่'}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
               isConnected
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 cursor-pointer animate-pulse'
             }`}
           >
             <span
@@ -554,8 +597,8 @@ export default function App() {
                 isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'
               }`}
             />
-            <span>{isConnected ? 'ออนไลน์' : 'ออฟไลน์'}</span>
-          </div>
+            <span>{isConnected ? 'ออนไลน์' : 'ออฟไลน์ (แตะต่อใหม่)'}</span>
+          </button>
 
           {/* Sound Toggle */}
           <button
@@ -605,6 +648,8 @@ export default function App() {
             errorMessage={errorMessage}
             snakesCount={room?.snakes.length || 7}
             laddersCount={room?.ladders.length || 8}
+            isConnected={isConnected}
+            onReconnect={() => socketRef.current?.connect()}
           />
         ) : (
           /* Active Game View (Board + Dashboard) */
