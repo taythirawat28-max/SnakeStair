@@ -207,7 +207,7 @@ export default function App() {
     } catch {}
   }, [room?.code, runStepByStepAnimation]);
 
-  // Background HTTP polling while in room (fallback sync)
+  // Background HTTP polling while in room (ensures host and friend see each other within 1 second)
   useEffect(() => {
     if (!room?.code) return;
 
@@ -219,25 +219,28 @@ export default function App() {
           if (data.success && data.room) {
             setRoom((prev) => {
               if (!prev) return data.room;
-              if (
-                prev.status !== data.room.status ||
-                prev.players.length !== data.room.players.length ||
-                prev.currentTurnIndex !== data.room.currentTurnIndex ||
-                prev.logs.length !== data.room.logs.length
-              ) {
-                return data.room;
+              // If step animation is running, preserve moving player position temporarily
+              if (movingPlayerId) {
+                return {
+                  ...data.room,
+                  players: data.room.players.map((p: Player) =>
+                    p.id === movingPlayerId
+                      ? { ...p, position: prev.players.find((x: Player) => x.id === movingPlayerId)?.position || p.position }
+                      : p
+                  ),
+                };
               }
-              return prev;
+              return data.room;
             });
           }
         }
       } catch {}
-    }, 1500);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [room?.code]);
+  }, [room?.code, movingPlayerId]);
 
-  // CREATE ROOM: Zero-failure guaranteed
+  // CREATE ROOM: Creates room on server
   const handleCreateRoom = async (data: { playerName: string; avatar: string; color: string }) => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -255,7 +258,11 @@ export default function App() {
           setRoom(resData.room);
           if (resData.playerId) setMyPlayerId(resData.playerId);
           if (socketRef.current?.connected) {
-            socketRef.current.emit('join_room', { roomCode: resData.room.code, ...data });
+            socketRef.current.emit('join_room', {
+              roomCode: resData.room.code,
+              playerId: resData.playerId,
+              playerName: data.playerName,
+            });
           }
           setIsLoading(false);
           sounds.playPop();
@@ -264,7 +271,7 @@ export default function App() {
       }
     } catch {}
 
-    // Instant local-room fallback (guaranteed to succeed immediately!)
+    // Instant local-room fallback
     const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
     let code = '';
     for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -315,7 +322,7 @@ export default function App() {
     broadcastChannelRef.current?.postMessage({ type: 'ROOM_SYNC', payload: newRoom });
   };
 
-  // JOIN ROOM: Zero-failure guaranteed
+  // JOIN ROOM: Connects friend to host room
   const handleJoinRoom = async (data: {
     roomCode: string;
     playerName: string;
@@ -337,7 +344,7 @@ export default function App() {
       const res = await fetch('/api/rooms/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, roomCode: code }),
+        body: JSON.stringify({ ...data, roomCode: code, playerId: myPlayerId }),
       });
       if (res.ok) {
         const resData = await res.json();
@@ -345,87 +352,64 @@ export default function App() {
           setRoom(resData.room);
           if (resData.playerId) setMyPlayerId(resData.playerId);
           if (socketRef.current?.connected) {
-            socketRef.current.emit('join_room', { ...data, roomCode: code });
+            socketRef.current.emit('join_room', {
+              roomCode: code,
+              playerId: resData.playerId,
+              playerName: data.playerName,
+            });
           }
           setIsLoading(false);
           sounds.playPop();
           return;
+        } else {
+          setErrorMessage(resData.error || 'ไม่พบห้องที่ระบุ');
         }
+      } else {
+        const resData = await res.json().catch(() => ({}));
+        setErrorMessage(resData.error || 'ไม่พบห้องที่ระบุ กรุณาตรวจสอบรหัสห้อง');
       }
-    } catch {}
+    } catch {
+      // Local fallback for same-device cross-tab testing
+      let roomToJoin: RoomState | null = null;
+      try {
+        const saved = localStorage.getItem(`snakes_room_${code}`);
+        if (saved) roomToJoin = JSON.parse(saved);
+      } catch {}
 
-    // Local / cross-tab fallback
-    let roomToJoin: RoomState | null = null;
-    try {
-      const saved = localStorage.getItem(`snakes_room_${code}`);
-      if (saved) roomToJoin = JSON.parse(saved);
-    } catch {}
+      if (roomToJoin) {
+        const newGuestPlayer: Player = {
+          id: myPlayerId,
+          name: (data.playerName || `ผู้เล่น ${roomToJoin.players.length + 1}`).trim().slice(0, 15),
+          color: data.color || PLAYER_COLORS[roomToJoin.players.length % PLAYER_COLORS.length].hex,
+          avatar: data.avatar || PLAYER_AVATARS[roomToJoin.players.length % PLAYER_AVATARS.length],
+          position: 1,
+          isHost: false,
+          isBot: false,
+          isReady: true,
+          connected: true,
+        };
 
-    if (!roomToJoin) {
-      // Deterministic board from room code
-      const { snakes, ladders } = generateRandomBoard(code);
-      const hostPlayer: Player = {
-        id: `p_host_${code}`,
-        name: 'หัวห้อง',
-        color: PLAYER_COLORS[0].hex,
-        avatar: PLAYER_AVATARS[0],
-        position: 1,
-        isHost: true,
-        isBot: false,
-        isReady: true,
-        connected: true,
-      };
-      roomToJoin = {
-        code,
-        hostId: hostPlayer.id,
-        players: [hostPlayer],
-        status: 'lobby',
-        currentTurnIndex: 0,
-        diceValue: null,
-        isRolling: false,
-        snakes,
-        ladders,
-        winner: null,
-        logs: [],
-        lastMove: null,
-      };
+        const existingIdx = roomToJoin.players.findIndex((p) => p.id === myPlayerId);
+        if (existingIdx >= 0) {
+          roomToJoin.players[existingIdx] = newGuestPlayer;
+        } else {
+          roomToJoin.players.push(newGuestPlayer);
+        }
+
+        try {
+          localStorage.setItem(`snakes_room_${code}`, JSON.stringify(roomToJoin));
+        } catch {}
+
+        setRoom(roomToJoin);
+        setIsLoading(false);
+        sounds.playPop();
+        broadcastChannelRef.current?.postMessage({ type: 'ROOM_SYNC', payload: roomToJoin });
+        return;
+      }
+
+      setErrorMessage('ไม่สามารถเชื่อมต่อห้องได้ กรุณาตรวจสอบรหัสห้อง');
     }
-
-    const newGuestPlayer: Player = {
-      id: myPlayerId,
-      name: (data.playerName || `ผู้เล่น ${roomToJoin.players.length + 1}`).trim().slice(0, 15),
-      color: data.color || PLAYER_COLORS[roomToJoin.players.length % PLAYER_COLORS.length].hex,
-      avatar: data.avatar || PLAYER_AVATARS[roomToJoin.players.length % PLAYER_AVATARS.length],
-      position: 1,
-      isHost: false,
-      isBot: false,
-      isReady: true,
-      connected: true,
-    };
-
-    const existingIdx = roomToJoin.players.findIndex((p) => p.id === myPlayerId);
-    if (existingIdx >= 0) {
-      roomToJoin.players[existingIdx] = newGuestPlayer;
-    } else {
-      roomToJoin.players.push(newGuestPlayer);
-    }
-
-    roomToJoin.logs.unshift({
-      id: `join-${Date.now()}`,
-      timestamp: Date.now(),
-      text: `${newGuestPlayer.name} เข้าร่วมห้องแล้ว!`,
-      type: 'info',
-    });
-
-    try {
-      localStorage.setItem(`snakes_room_${code}`, JSON.stringify(roomToJoin));
-    } catch {}
-
-    setRoom(roomToJoin);
     setIsLoading(false);
-    sounds.playPop();
-
-    broadcastChannelRef.current?.postMessage({ type: 'ROOM_SYNC', payload: roomToJoin });
   };
 
   // START GAME (HOST)

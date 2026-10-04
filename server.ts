@@ -260,21 +260,35 @@ io.on('connection', (socket: Socket) => {
   });
 
   // JOIN ROOM
-  socket.on('join_room', (data: { roomCode: string; playerName: string; avatar?: string; color?: string }, callback) => {
+  socket.on('join_room', (data: { roomCode: string; playerName?: string; avatar?: string; color?: string; playerId?: string }, callback) => {
     try {
       const code = (data.roomCode || '').trim().toUpperCase();
       const room = rooms.get(code);
 
       if (!room) {
-        return callback({ success: false, error: 'ไม่พบห้องที่ระบุ กรุณาตรวจสอบรหัสห้องอีกครั้ง' });
+        return callback?.({ success: false, error: 'ไม่พบห้องที่ระบุ กรุณาตรวจสอบรหัสห้องอีกครั้ง' });
+      }
+
+      socket.join(code);
+
+      // Check if this player is ALREADY in the room (e.g. host linking their socket, or reconnecting)
+      const existingPlayer = room.players.find((p) => p.id === data.playerId || (data.playerName && p.name === data.playerName.trim()));
+      if (existingPlayer) {
+        existingPlayer.id = socket.id;
+        existingPlayer.connected = true;
+        if (existingPlayer.isHost) {
+          room.hostId = socket.id;
+        }
+        io.to(code).emit('room_updated', room);
+        return callback?.({ success: true, room, playerId: existingPlayer.id });
       }
 
       if (room.status !== 'lobby') {
-        return callback({ success: false, error: 'เกมกำลังดำเนินอยู่ ไม่สามารถเข้าร่วมได้' });
+        return callback?.({ success: false, error: 'เกมกำลังดำเนินอยู่ ไม่สามารถเข้าร่วมได้' });
       }
 
       if (room.players.length >= 4) {
-        return callback({ success: false, error: 'ห้องนี้เต็มแล้ว (ผู้เล่นครบ 4 คน)' });
+        return callback?.({ success: false, error: 'ห้องนี้เต็มแล้ว (ผู้เล่นครบ 4 คน)' });
       }
 
       // Assign color and avatar if not specified or already taken
@@ -299,7 +313,6 @@ io.on('connection', (socket: Socket) => {
       };
 
       room.players.push(newPlayer);
-      socket.join(code);
 
       addLog(room, {
         text: `${newPlayer.name} เข้าร่วมห้องแล้ว!`,
@@ -309,10 +322,10 @@ io.on('connection', (socket: Socket) => {
       });
 
       io.to(code).emit('room_updated', room);
-      callback({ success: true, room });
+      callback?.({ success: true, room, playerId: newPlayer.id });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error joining room';
-      callback({ success: false, error: msg });
+      callback?.({ success: false, error: msg });
     }
   });
 
@@ -548,13 +561,22 @@ app.post('/api/rooms/create', (req, res) => {
 // REST: Join Room
 app.post('/api/rooms/join', (req, res) => {
   try {
-    const { roomCode, playerName, avatar, color } = req.body || {};
+    const { roomCode, playerName, avatar, color, playerId } = req.body || {};
     const code = (roomCode || '').trim().toUpperCase();
     const room = rooms.get(code);
 
     if (!room) {
       return res.status(404).json({ success: false, error: 'ไม่พบห้องที่ระบุ กรุณาตรวจสอบรหัสห้องอีกครั้ง' });
     }
+
+    // Check if player is already in room
+    const existingPlayer = room.players.find((p) => (playerId && p.id === playerId) || (playerName && p.name === playerName.trim()));
+    if (existingPlayer) {
+      existingPlayer.connected = true;
+      io.to(code).emit('room_updated', room);
+      return res.json({ success: true, room, playerId: existingPlayer.id });
+    }
+
     if (room.status !== 'lobby') {
       return res.status(400).json({ success: false, error: 'เกมกำลังดำเนินอยู่ ไม่สามารถเข้าร่วมได้' });
     }
@@ -687,7 +709,7 @@ app.post('/api/rooms/:code/reroll', (req, res) => {
 });
 
 async function startServer() {
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
